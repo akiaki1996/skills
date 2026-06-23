@@ -16,11 +16,6 @@ Usage: `/implement-spec path/to/spec.md`
 
 ## Installation
 
-Each skill is a directory with a `SKILL.md`. To install, symlink into `~/.claude/skills/`:
-
-```bash
-git clone https://github.com/wangqiuyang/aki-skills
-cd aki-skills
-ln -s "$PWD/handoff" ~/.claude/skills/handoff
-ln -s "$PWD/implement-spec" ~/.claude/skills/implement-spec
+```
+/plugin install wangqiuyang/aki-skills
 ```
