@@ -140,12 +140,38 @@ On a full pass (auto-merge is the default per this skill's design):
 gh pr merge <N> --squash --delete-branch
 ```
 
-If GitHub blocks self-approval, post the approving review as a **comment** instead, then merge. After merge:
-- Delete the remote branch (and any local worktree/branch left behind) and prune.
-- `git fetch origin` and confirm the new `origin/dev` tip.
-- Record a short memory note (what the PR did, what you verified, the merge commit) so later PRs that touch the same area inherit the context — and so you can detect a later PR silently reverting it.
+If GitHub blocks self-approval, post the approving review as a **comment** instead, then merge.
 
-**Completion criterion:** PR is MERGED, branch cleaned up, origin refreshed, outcome recorded.
+**Then clean up every worktree and branch this PR spawned — both kinds:**
+
+1. **Verification worktrees** you created during review (the `/tmp/pr<N>-check`, `/tmp/pr<N>-base` detached worktrees for the 3-way merge / red-proof):
+   ```bash
+   git worktree remove --force /tmp/pr<N>-check
+   git worktree remove --force /tmp/pr<N>-base    # if you made one for the red proof
+   ```
+2. **The author's local worktree** — if the PR branch lives on a worktree under the repo's `.claude/worktrees/` (i.e. it was developed locally, the fix-in-worktree case, or any branch you can see in `git worktree list`):
+   ```bash
+   git worktree remove --force .claude/worktrees/<branch-dir>   # remove the worktree first
+   git branch -D <branch>                                        # then the local branch
+   ```
+   Order matters: a branch that's still checked out in a worktree **cannot** be deleted — `gh pr merge --delete-branch` will fail with "cannot delete branch ... used by worktree". Remove the worktree first, then the branch.
+3. **The remote branch** — `--delete-branch` usually handles it; if it didn't (e.g. the local-worktree block above), delete it explicitly:
+   ```bash
+   gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>
+   ```
+4. **Prune** stale worktree metadata and refresh:
+   ```bash
+   git worktree prune
+   git fetch origin && git log origin/<default-branch> --oneline -1
+   ```
+
+Finally, **record a short memory note** (what the PR did, what you verified, the merge commit) so later PRs that touch the same area inherit the context — and so you can detect a later PR silently reverting it.
+
+**Completion criterion:** PR is MERGED; *all* verification worktrees removed; the author's local worktree + its local branch removed (if any); the remote branch gone; `git worktree list` is clean; origin refreshed; outcome recorded.
+
+> Also clean up on the **other** exit paths, not just merge:
+> - **Bounce-back** (changes-requested, PR left open): remove your `/tmp/pr<N>-*` verification worktrees, but **leave the author's `.claude/worktrees/` worktree and branch alone** — they need it to push the fix.
+> - **Fix-in-worktree** (you pushed a fix to a local worktree, then it merged): clean it up as in step 2 above, same as any merged local branch.
 
 ## Hard rules (learned the hard way)
 
@@ -157,6 +183,7 @@ If GitHub blocks self-approval, post the approving review as a **comment** inste
 - **A new tool isn't usable until it's registered everywhere.** Verify the assembly chain at runtime — export ≠ registered.
 - **Don't auto-fix branches you don't own.** Bounce those back with directions.
 - **Auto-fix means minimal + in-scope.** Fix exactly what the review flagged; re-review the new head before merging.
+- **Clean up worktrees on exit — both kinds.** After merge, remove your `/tmp/pr<N>-*` verification worktrees *and* the author's `.claude/worktrees/` worktree+branch if the PR was local. Remove the worktree **before** deleting its branch (a checked-out branch can't be deleted — that's why `--delete-branch` fails on local-worktree PRs). On a bounce-back, clean only your verification worktrees and leave the author's alone. End with `git worktree prune` and a clean `git worktree list`.
 - **Record every merge.** The loop's memory is how you catch a later PR colliding with or reverting an earlier one — and how a follow-up PR's diagnosis tells you what an earlier PR (maybe one *you* merged) actually got wrong.
 - **Your own approvals aren't immune.** A PR can pass your review and still have a latent bug a later dogfood surfaces (e.g. unit tests used a capture-runner that hid an unresolved-path bug). When a follow-up PR fixes something you merged, update your memory with the gap your review missed and tighten the relevant check — that self-correction is part of the loop.
 - **Self-approval is usually blocked.** If `gh pr review --approve` fails on your own PR, post the review as a **comment** and merge anyway.
