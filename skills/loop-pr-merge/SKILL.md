@@ -1,0 +1,180 @@
+---
+name: loop-pr-merge
+description: Stand up a self-paced loop that watches a GitHub repo for new PRs and reviews-then-merges each one against the repo's own development + merge rules. Use whenever the user wants to "babysit PRs", "watch for new PRs and review/merge them", "monitor PRs in a loop", run a PR-review/merge loop, or says "/loop-pr-merge". The loop arms a Monitor on new PRs, and for each PR: judges mergeability + CI, reviews with risk-scaled rigor (read CLAUDE.md first), and on pass squash-merges; on failure either fixes directly when the PR branch is a local worktree and pushes, or posts a directed changes-requested review telling the author exactly what to change.
+disable-model-invocation: true
+---
+
+# loop-pr-merge
+
+## Overview
+
+Run a continuous, self-paced loop that **watches a repository for new pull requests and reviews-then-merges each one** against *that repository's own* development and PR-merge rules. Not a generic linter — the bar is "does this PR satisfy the rules the repo itself declares" (CLAUDE.md, sync rules, test discipline, protected-file handling).
+
+The loop's job per PR: recover the project context (the PR's spec + diagnosis), judge it mergeable, review it at a rigor proportional to its risk, and then either **merge it** (clean pass), **fix it in place and push** (when the PR was made on a local worktree you own), or **bounce it back** with a directed changes-requested review (when it's not yours to touch).
+
+This is `/loop` (self-paced dynamic mode) + a `Monitor` on new PRs + a fixed per-PR review-and-act procedure. Slash-invoked: `/loop-pr-merge [repo-path]`.
+
+This skill distills a real session that reviewed-and-merged ~25 consecutive PRs (features, fixes, follow-up fixes, and a DeerFlow sync) on one repo. The patterns below are the ones that actually carried that run; the appendix at the end is a condensed worked log.
+
+## Argument
+
+The argument is the repo to watch (path or `owner/repo`). If omitted, use the current working directory's repo. Resolve it once, `cd` there, and confirm `gh` is authenticated for it (`gh repo view`).
+
+## When to use
+
+```dot
+digraph loop_pr_merge {
+    "User wants ongoing PR review+merge?" [shape=diamond];
+    "User named a one-off PR?" [shape=diamond];
+    "Run this skill (arm loop)" [shape=box];
+    "Just review that one PR (no loop)" [shape=box];
+
+    "User wants ongoing PR review+merge?" -> "Run this skill (arm loop)" [label="yes"];
+    "User wants ongoing PR review+merge?" -> "User named a one-off PR?" [label="no"];
+    "User named a one-off PR?" -> "Just review that one PR (no loop)" [label="yes (still follow §3-§6 below)"];
+}
+```
+
+Trigger phrases: "babysit PRs", "watch/monitor PRs", "review and merge new PRs in a loop", "盯着这个仓库的 PR", "新 PR 来了就审了合", `/loop-pr-merge`.
+
+## 1. Read the repo's rules first (do this once, before the loop)
+
+The whole point is to enforce *the repo's own* bar. Before reviewing anything:
+
+1. Read `CLAUDE.md` at the repo root in full. Extract the development requirements, the **PR-merge requirements**, and especially the **sync rules** (these are the highest-stakes — see `references/review-rigor.md`).
+2. Note any `docs/` the CLAUDE.md points to (agent docs, ADRs, triage labels, domain context).
+3. Note the repo's test command and where tests live, the default branch, and any protected-file list (often in a `scripts/sync-*.sh` or similar).
+
+**Completion criterion:** you can state, in one or two sentences, what this repo considers a mergeable PR and what its sync discipline requires.
+
+## 2. Arm the loop
+
+This is dynamic `/loop` mode — you self-pace and a Monitor is the primary wake signal.
+
+1. **Establish the watermark**: find the highest existing PR number so the Monitor only fires on genuinely new PRs. Review any already-open PRs immediately (don't wait for the Monitor).
+2. **Arm a persistent Monitor** that emits one line per newly-opened PR above the watermark, e.g. poll `gh pr list --state open --json number,title,author` every ~60s and emit PRs with number > watermark. Set `persistent: true`. Arm it **once** — on later iterations, check it's still running before re-arming.
+3. **Confirm to the user** what you're watching, then call `ScheduleWakeup` with a long fallback heartbeat (1200–1800s) — the Monitor wakes you the instant a PR appears; the heartbeat is only a safety net.
+4. Each time a `<task-notification>` reports a new PR, handle it (§3–§6), then re-arm `ScheduleWakeup` with the same prompt and heartbeat.
+
+To stop: omit `ScheduleWakeup` and `TaskStop` the Monitor.
+
+## 3. Triage each PR (cheap checks first)
+
+For every PR, gather before reading code:
+
+```bash
+gh pr view <N> --json number,title,author,baseRefName,headRefName,headRefOid,additions,deletions,changedFiles,body,mergeable,mergeStateStatus
+gh pr diff <N> --name-only
+gh pr view <N> --json statusCheckRollup --jq '.statusCheckRollup[] | {name:(.name//.context),conclusion:(.conclusion//.state)}'
+```
+
+Decide three things:
+- **Base freshness.** Is the PR head a descendant of current `origin/dev` (clean), or is the base **stale**? If stale, you must verify against the **3-way merge result**, not the PR branch in isolation. See `references/review-rigor.md#stale-base`.
+- **CI.** Green? If `IN_PROGRESS`/pending, arm a short Monitor or `ScheduleWakeup` and wait — never merge on unfinished CI. `UNSTABLE` with the only required check green is usually fine (GitHub quirk); confirm via the rollup.
+- **Risk tier** (sets how deep §4 goes): docs/prompt-only < single-tool < harness-core (middleware/executor/guardrails/seal) < **sync PR** (highest).
+
+**Completion criterion:** you know whether the merge is clean or stale-base, whether CI is green, and the risk tier.
+
+## 3.5. Recover the project context — read the spec before the code
+
+A PR in this workflow is **never a stranger**: every change starts from a spec. Reviewing the diff in a vacuum loses the project-level cause-and-effect and makes review generic instead of targeted. Before reading code, recover the intent:
+
+1. **Find and read the spec.** The PR body usually links `docs/superpowers/specs/<date>-<topic>-spec.md` and often a `docs/problems/<date>-...md` diagnosis; the branch/worktree name typically mirrors the spec slug. Read the spec's action summary, change list (manifest), tests, acceptance criteria, and risk notes.
+2. **Read the diagnosis doc** if referenced — it carries the observed failure (dogfood/prod trace) and the root-cause reasoning. This is what lets you judge *does the fix address the root cause, or just a symptom*.
+3. **Recover review memory** for this area: prior PRs on the same files, established root causes, retracted hypotheses. A PR that contradicts a settled root cause or re-introduces a fixed bug is a **finding**, not a pass.
+4. **Place it in the sequence**: what merged just before? Does it build on a recent PR (verify those pieces survive) or supersede one (verify the old approach is cleanly replaced)?
+
+Then review the diff **against the spec's manifest and acceptance criteria** — did it do everything the spec claimed, and did it quietly do *more* (scope creep)?
+
+This step is the difference between "a stranger PR walked in" and "I know exactly why this change exists and how it fits the project". See `references/review-rigor.md#§0`.
+
+**Completion criterion:** you can state the PR's root cause, its intended manifest, and how it relates to the last few merges — before judging a single line.
+
+## 4. Review with risk-scaled rigor
+
+Read `references/review-rigor.md` and apply the checks for this PR's risk tier. The non-negotiables for any code PR:
+
+- **Fix targets the root cause, not a symptom.** Judge the diff against the spec's diagnosis (§3.5), not just "does it look reasonable". A locally-plausible fix that misses the real root cause is the most expensive miss.
+- **Read the actual diff** — a good PR body still needs the code verified against it.
+- **Protected / constitution files** (prompts, registries, sync-protected lists): head-to-head byte verification, not grep. A constraint can be paraphrased away while the grep string still matches.
+- **Assembly chain**: a new tool must be wired in *every* required place (definition + export + registry + the agent's allow-list). Verify at runtime, not by grep.
+- **Recent-PR survival**: confirm the PR doesn't silently revert or collide with what merged in the last few PRs (especially for stale-base and sync PRs).
+- **Import-ring**: after touching harness core, bare-import the production entrypoints; they must load with no cycle.
+- **Red→green**: the PR's new tests must fail against pre-change source and pass against the change. For concurrency fixes, prove red across multiple iterations and green under stress.
+- **Neighborhood seesaw**: run the changed area's full test neighborhood; failures must equal the known pre-existing baseline set (compare the failing *file set*, not the count).
+- **Three-pathology self-check** (if the repo cares about agent harness quality): reward-hacking / catastrophic-forgetting / under-exploration.
+
+**Track each PR as its own todo list.** A single PR's review is itself a multi-step task (triage → context → rigor → verdict → merge/record). Drive it with TodoWrite so nothing in the rigor checklist gets skipped under the momentum of a long loop — the discipline is what keeps PR #20 reviewed as carefully as PR #1.
+
+Use a temporary detached worktree at the (3-way-merged, if stale) commit to run all verification; never run against the dirty main tree. Clean it up after (`git worktree remove --force` + `prune`).
+
+**Completion criterion:** every claim in the PR body is confirmed against code/tests, or you have a specific finding to act on in §5/§6.
+
+## 5. Act on the verdict
+
+```dot
+digraph verdict {
+    "Review passed?" [shape=diamond];
+    "PR branch is a local worktree I own?" [shape=diamond];
+    "MERGE (§6)" [shape=box];
+    "Fix in worktree + push" [shape=box];
+    "Bounce back: directed changes-requested" [shape=box];
+
+    "Review passed?" -> "MERGE (§6)" [label="yes"];
+    "Review passed?" -> "PR branch is a local worktree I own?" [label="no"];
+    "PR branch is a local worktree I own?" -> "Fix in worktree + push" [label="yes"];
+    "PR branch is a local worktree I own?" -> "Bounce back: directed changes-requested" [label="no"];
+}
+```
+
+- **Fix-in-worktree path** (the branch exists under the repo's `.claude/worktrees/` and is yours to change): make the minimal fix on that worktree, run the relevant tests green, `git commit` + `git push` to the PR branch, then re-review the updated head. Only fix what the review flagged — no scope creep. Then proceed to §6 if it now passes.
+- **Bounce-back path** (not yours / external contributor): post a `changes-requested` review (or comment if self-approval is blocked) that follows the repo's deny-message discipline — **direct, not just informative**: state *what* is wrong, *why* it violates the repo's rules, and *exactly what to change*. Do NOT merge. Leave the PR open for the author.
+
+**Completion criterion:** the PR is either ready to merge, pushed-and-re-reviewed, or has an actionable changes-requested review and is left open.
+
+## 6. Merge + record
+
+On a full pass (auto-merge is the default per this skill's design):
+
+```bash
+gh pr merge <N> --squash --delete-branch
+```
+
+If GitHub blocks self-approval, post the approving review as a **comment** instead, then merge. After merge:
+- Delete the remote branch (and any local worktree/branch left behind) and prune.
+- `git fetch origin` and confirm the new `origin/dev` tip.
+- Record a short memory note (what the PR did, what you verified, the merge commit) so later PRs that touch the same area inherit the context — and so you can detect a later PR silently reverting it.
+
+**Completion criterion:** PR is MERGED, branch cleaned up, origin refreshed, outcome recorded.
+
+## Hard rules (learned the hard way)
+
+- **Read the spec before the diff.** A PR without its project context gets reviewed generically and misses root-cause and collision problems. (§3.5)
+- **Never merge on unfinished/failing CI.** Wait for it — `Monitor` the checks or `ScheduleWakeup` and come back. `UNSTABLE` ≠ failing; confirm via the status rollup.
+- **Stale base ⇒ verify the merge result, not the PR branch.** Compute it with `git merge-tree --write-tree` → `git commit-tree` → detached worktree. See references.
+- **Worktree shares the main venv** (editable `.pth` points at the main repo) ⇒ running plain `pytest` tests *main* code, not the PR. Override `PYTHONPATH` to the worktree's package source (or use the worktree's own venv if it has one). See references.
+- **Protected/prompt files: byte-level head-to-head, never grep-only.** Grep passes even when a constraint is paraphrased into uselessness.
+- **A new tool isn't usable until it's registered everywhere.** Verify the assembly chain at runtime — export ≠ registered.
+- **Don't auto-fix branches you don't own.** Bounce those back with directions.
+- **Auto-fix means minimal + in-scope.** Fix exactly what the review flagged; re-review the new head before merging.
+- **Record every merge.** The loop's memory is how you catch a later PR colliding with or reverting an earlier one — and how a follow-up PR's diagnosis tells you what an earlier PR (maybe one *you* merged) actually got wrong.
+- **Your own approvals aren't immune.** A PR can pass your review and still have a latent bug a later dogfood surfaces (e.g. unit tests used a capture-runner that hid an unresolved-path bug). When a follow-up PR fixes something you merged, update your memory with the gap your review missed and tighten the relevant check — that self-correction is part of the loop.
+- **Self-approval is usually blocked.** If `gh pr review --approve` fails on your own PR, post the review as a **comment** and merge anyway.
+- **Backtick-heavy review bodies → use `--body-file`,** not inline `--body` (the shell mangles backticks via command substitution).
+
+## Appendix — condensed worked log (this skill's source session)
+
+A single loop reviewed/merged ~25 PRs on one repo. Representative moves, as concrete precedent:
+
+- **Feature PR (new deterministic tool).** Verified value framing was honest (not hung on a refuted premise), the tool sealed/delivered on **all** paths, the **assembly chain** at runtime (definition+export+registry+allow-list), import-ring, red→green, and a ~400-test neighborhood seesaw. Merged.
+- **Seal/middleware-core PR.** Verification triad: import-ring bare-import of the merge source + direct `importlib` assertions on the changed constants/sets + neighborhood seesaw to prove the main path didn't regress. Confirmed a safety invariant (a cognitive-product producer stays *out* of the auto-reconstruct set) was preserved.
+- **Concurrency fix.** Proved the race **deterministically**: overlaid the test on the no-lock source and ran it 3× (barrier-aligned) — failed every time; then ran the fixed version 5× under stress — green every time. Single runs would have proven nothing.
+- **PR that broke an existing pinned test.** Did **not** auto-merge. Confirmed pristine-dev passed and the PR introduced the red (the PR's self-reported "neighborhood" list had missed the pinned test). Surfaced it; the owner authorized a one-line test fix; re-verified; merged. Lesson: when a PR changes a shared prompt/constant, independently grep *all* its pinned consumers.
+- **DeerFlow sync PR (highest stakes).** 3-way merge against current dev; confirmed the just-merged feature survived; head-to-head byte-checked all 6 protected files (the local memory-isolation customization survived **in code**, not just a docstring; upstream's refactor was followed, the local constraint preserved); registry files untouched; import-ring; no new top-level optional-dep import; broad seesaw over both the sync's suites and recent-PR neighborhoods. Merged + bumped sync-state.
+- **Follow-up fix to a PR I'd merged.** A dogfood surfaced that the merged tool passed raw `/mnt` virtual paths to in-process scripts (112/113 outputs failed). The fix pre-resolved argv paths. Red→green confirmed; the ethoinsight compute chain (shared helper) stayed green. Recorded the gap my earlier review missed (capture-runner unit tests hid it) and tightened the check.
+
+The throughline: **every PR got the same procedure regardless of how routine it looked**, the rigor scaled with risk, and the loop's memory turned a stream of "stranger PRs" into a coherent project narrative.
+
+## Reference
+
+- `references/review-rigor.md` — the full risk-tiered verification methodology: §0 recover-project-context (spec + diagnosis + memory), stale-base 3-way merge, worktree/venv setup, import-ring, red→green (incl. concurrency), neighborhood seesaw + test-failure triage, sync-PR discipline (protected-file head-to-head, local-customization survival), assembly-chain runtime check + argv path-resolution, and the three-pathology self-check.

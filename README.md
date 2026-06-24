@@ -14,6 +14,12 @@ Given a structured spec document, create a worktree off the current branch, impl
 
 Usage: `/implement-spec path/to/spec.md`
 
+### `/loop-pr-merge`
+
+Stand up a self-paced loop that watches a repo for new PRs and reviews-then-merges each one against *that repo's own* development and merge rules. Reads `CLAUDE.md` first, recovers each PR's spec + diagnosis for project context, then reviews with risk-scaled rigor (stale-base 3-way merge, protected-file byte checks, import-ring, red→green, neighborhood seesaw, sync discipline). On a clean pass it squash-merges; on a failure it either fixes the PR in place and pushes (when the branch is a local worktree you own) or posts a directed changes-requested review. Distilled from a real session that merged ~25 consecutive PRs.
+
+Usage: `/loop-pr-merge [repo-path]`
+
 ## Installation
 
 ```
