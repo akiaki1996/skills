@@ -26,6 +26,14 @@ Stand up a self-paced loop that watches a repo for new PRs and reviews-then-merg
 
 Usage: `/loop-pr-merge [repo-path]`
 
+### `/doc-sync`
+
+Flow the facts and decisions that already happened (recorded in handoffs + new plans/specs) back into the project-level docs — `CLAUDE.md`, `docs/milestone/README.md` + each milestone, `docs/adr/` — and **delete or collapse the stale content while doing it**. The first principle is drift correction, not append: every run must surface what it deleted/collapsed (zero deletions needs a stated reason), and `CLAUDE.md` line count + milestone active-table row count are watched as health metrics — if both only grow, it raises an alert. Like `/read-handoff`, it trusts git/`gh` over handoff prose: a handoff claim that "X merged into dev" must be verified with `git log`/`gh` before it lands in `CLAUDE.md`. Changes are classified mechanical (pointer/status/hash swap — write directly), semantic (rewrite stale prose, move a finished track to the completed table, resolve a contradiction — write but highlight in the report), or new (new milestone/ADR — must pass a gating check and is quota-capped at ADR≤1, milestone≤2 per run to stop the skill itself from becoming an add-only machine). Writes everything, shows a full report, asks before committing.
+
+Use on a project with a `docs/handoffs/` (by-month dirs), `docs/milestone/`, `CLAUDE.md` layout.
+
+Usage: `/doc-sync [N]` (N = scan handoffs from the last N days, default 7)
+
 ## Installation
 
 ```
