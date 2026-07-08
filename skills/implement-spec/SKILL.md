@@ -54,6 +54,8 @@ Follow every constraint in **六、风险与注意事项** as you code. When a c
 
 Run tests frequently. When the spec references file paths like `/mnt/user-data/workspace/...`, these are sandbox-internal paths; the actual source files are under `packages/`.
 
+Before you finish, run the **full suite once in a way the reviewer can reproduce** — record the exact command and how the venv resolved (shared main `.pth` vs. an isolated `uv sync --frozen`). This is what step 4.5 turns into the environment receipt, so the reviewer can trust your green instead of re-deriving it.
+
 **Completion criterion:** every test in 四 passes; every item in 三 is implemented.
 
 ## 4. Verify acceptance criteria
@@ -61,6 +63,19 @@ Run tests frequently. When the spec references file paths like `/mnt/user-data/w
 Check each item in **五、验收标准** explicitly. If any criterion requires a live run (dogfood/smoke test), note it as a manual step and flag it in the PR body.
 
 **Completion criterion:** each criterion in 五 is either confirmed green or explicitly deferred with a note.
+
+## 4.5. Record the environment receipt
+
+The reviewer's slowest step is re-deriving facts you already know from having just run the suite. Collect them now so the PR carries them (they go into the PR body in step 6). Gather exactly four things:
+
+- **base** — the exact SHA you branched from, not just the branch name: `git rev-parse origin/$BASE`, plus your worktree HEAD (`git rev-parse HEAD`). This lets the reviewer judge stale-base without guessing.
+- **venv isolation** — did the worktree use the shared main venv or an isolated one? `cat` the worktree's `.pth` (or check whether it has its own `.venv`): a `.pth` pointing at the *main* repo means plain `pytest` tests **main** code, not the PR — so record whether you ran with an isolated `uv sync --frozen` venv, or overrode `PYTHONPATH=<worktree>/packages/...`. State the actual command you used.
+- **config.yaml / live tests** — is `config.yaml` present in the worktree? `tests/test_client_live.py` skips the whole module when `config.yaml` is absent (or `CI` is set), and `requires_llm` tests skip without `OPENAI_API_KEY`. Say in one line which happened: live ran, or live skipped (and why).
+- **result** — the suite's `N passed, M skipped, K failed`. If anything failed, list the failing **file set** (not just the count) and say whether it equals the known pre-existing baseline or is new.
+
+This is a receipt the reviewer can spot-check, not a substitute for their own run — so report it honestly: the exact command, the real counts, the real skip reason.
+
+**Completion criterion:** you have all four facts written down, ready to paste into the PR body.
 
 ## 5. Commit and push
 
@@ -95,9 +110,18 @@ gh pr create \
 
 <list each item from 五, with status: ✅ confirmed / ⏳ needs manual run>
 
+## 环境收据
+
+<paste the four facts from step 4.5, one per line — keep the field names so the reviewer can grep them>
+- base: origin/$BASE @ <sha12>  (worktree HEAD <sha12>)
+- venv: <独立 uv sync --frozen | 共享主仓 .pth,测试用 PYTHONPATH=<...>>
+- config.yaml: <存在,live 已跑 | 缺席,live 模块 skip>
+- 测试: <确切命令,如 `make test`> → <N passed, M skipped, K failed>
+- 失败文件集(若 K>0): <[...] == 已知 baseline / 新增>
+
 🤖 Generated with [Claude Code](https://claude.ai/claude-code)
 EOF
 )"
 ```
 
-**Completion criterion:** `gh pr view` shows the PR open against `$BASE`; the body covers 改动内容 and 验收.
+**Completion criterion:** `gh pr view` shows the PR open against `$BASE`; the body covers 改动内容, 验收, and 环境收据.

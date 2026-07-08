@@ -60,6 +60,14 @@ To stop: omit `ScheduleWakeup` and `TaskStop` the Monitor.
 
 ## 3. Triage each PR (cheap checks first)
 
+**First, read the environment receipt if the PR has one.** PRs produced by `/implement-spec` carry a `## 环境收据` block in the body (base SHA, venv isolation, config.yaml/live handling, `N passed/M skipped/K failed`). Grep it out first — it lets you skip *exploratory* reruns:
+
+- **Deterministic facts → trust after a 1-second check.** Confirm the receipt's `base` SHA against `gh pr view --json baseRefName,headRefOid`; if they match, take its base-freshness judgement instead of re-deriving it. If `venv` says an isolated `uv sync --frozen`, trust that its green tested the *PR* code (not the main repo via a shared `.pth`) — you don't need to re-stand-up `PYTHONPATH` just to discover that.
+- **Self-reported results → only downgrade your rerun scope, never replace it.** The receipt's `N passed` does **not** let you skip your own run. It downgrades that run from "full exploratory suite" to "the incremental rerun aligned to current staging HEAD" (§4).
+- **No receipt** (external / old PR): fall back to the full flow below, no downgrade.
+
+> The receipt is a reconciliation lead, not a merge waiver. Verifiable facts (base / venv / config) you may trust; the passed count only narrows your rerun — the one authoritative rerun against current HEAD is never skipped.
+
 For every PR, gather before reading code:
 
 ```bash
@@ -69,11 +77,18 @@ gh pr view <N> --json statusCheckRollup --jq '.statusCheckRollup[] | {name:(.nam
 ```
 
 Decide three things:
-- **Base freshness.** Is the PR head a descendant of current `origin/dev` (clean), or is the base **stale**? If stale, you must verify against the **3-way merge result**, not the PR branch in isolation. See `references/review-rigor.md#stale-base`.
-- **CI.** Green? If `IN_PROGRESS`/pending, arm a short Monitor or `ScheduleWakeup` and wait — never merge on unfinished CI. `UNSTABLE` with the only required check green is usually fine (GitHub quirk); confirm via the rollup.
+- **Base freshness.** Is the PR head a descendant of current `origin/dev` (clean), or is the base **stale**? If stale, you must verify against the **3-way merge result**, not the PR branch in isolation. See `references/review-rigor.md#stale-base`. (If the receipt's base SHA checked out, you already have this.)
+- **CI.** Green? If `IN_PROGRESS`/pending, **do not sit and wait** — suspend this PR and move on (see below). Never merge on unfinished CI, but never idle on it either. `UNSTABLE` with the only required check green is usually fine (GitHub quirk); confirm via the rollup.
 - **Risk tier** (sets how deep §4 goes): docs/prompt-only < single-tool < harness-core (middleware/executor/guardrails/seal) < **sync PR** (highest).
 
-**Completion criterion:** you know whether the merge is clean or stale-base, whether CI is green, and the risk tier.
+**When CI is unfinished, suspend — don't block:**
+
+1. Record this PR in a **pending-CI list** (PR#, head SHA, which step you'd reached).
+2. Arm a Monitor on its checks (non-blocking) — or fold it into the loop's existing Monitor.
+3. **Go do work that doesn't depend on CI**: triage/review the next PR, or advance *this* PR's CI-independent steps — read the spec (§3.5), byte-check protected files (§4), run the local rerun aligned to HEAD.
+4. When the Monitor reports CI green → return to this PR and finish (§6). CI red → §5 (bounce/fix).
+
+**Completion criterion:** you know whether the merge is clean or stale-base, whether CI is green (or suspended-pending), and the risk tier.
 
 ## 3.5. Recover the project context — read the spec before the code
 
@@ -86,7 +101,7 @@ A PR in this workflow is **never a stranger**: every change starts from a spec. 
 
 Then review the diff **against the spec's manifest and acceptance criteria** — did it do everything the spec claimed, and did it quietly do *more* (scope creep)?
 
-This step is the difference between "a stranger PR walked in" and "I know exactly why this change exists and how it fits the project". See `references/review-rigor.md#§0`.
+This step is the difference between "a stranger PR walked in" and "I know exactly why this change exists and how it fits the project". See `references/review-rigor.md#§0`. (If the PR carried an environment receipt, its base SHA and test result give this step a starting point — recover the spec *around* those facts rather than from zero.)
 
 **Completion criterion:** you can state the PR's root cause, its intended manifest, and how it relates to the last few merges — before judging a single line.
 
@@ -101,7 +116,7 @@ Read `references/review-rigor.md` and apply the checks for this PR's risk tier. 
 - **Recent-PR survival**: confirm the PR doesn't silently revert or collide with what merged in the last few PRs (especially for stale-base and sync PRs).
 - **Import-ring**: after touching harness core, bare-import the production entrypoints; they must load with no cycle.
 - **Red→green**: the PR's new tests must fail against pre-change source and pass against the change. For concurrency fixes, prove red across multiple iterations and green under stress.
-- **Neighborhood seesaw**: run the changed area's full test neighborhood; failures must equal the known pre-existing baseline set (compare the failing *file set*, not the count).
+- **Neighborhood seesaw**: run the changed area's full test neighborhood; failures must equal the known pre-existing baseline set (compare the failing *file set*, not the count). When the PR carries an environment receipt (§3) whose venv was isolated, this is your **one authoritative rerun aligned to current staging HEAD** — you're confirming "what new red does merging into *current* dev introduce", not re-discovering whether the suite passes at all. Red→green, protected-file byte-checks, and the assembly-chain check are **unaffected by the receipt — always run them in full** (a self-reported count can't stand in for them).
 - **Three-pathology self-check** (if the repo cares about agent harness quality): reward-hacking / catastrophic-forgetting / under-exploration.
 
 **Track each PR as its own todo list.** A single PR's review is itself a multi-step task (triage → context → rigor → verdict → merge/record). Drive it with TodoWrite so nothing in the rigor checklist gets skipped under the momentum of a long loop — the discipline is what keeps PR #20 reviewed as carefully as PR #1.
@@ -176,7 +191,8 @@ Finally, **record a short memory note** (what the PR did, what you verified, the
 ## Hard rules (learned the hard way)
 
 - **Read the spec before the diff.** A PR without its project context gets reviewed generically and misses root-cause and collision problems. (§3.5)
-- **Never merge on unfinished/failing CI.** Wait for it — `Monitor` the checks or `ScheduleWakeup` and come back. `UNSTABLE` ≠ failing; confirm via the status rollup.
+- **Read the environment receipt, then trust facts / downgrade results.** A `/implement-spec` PR carries a `## 环境收据` (base SHA, venv isolation, config/live handling, passed count). Trust the *verifiable facts* (base, venv, config) after a 1-second check — they save exploratory reruns. The self-reported passed count only **downgrades** your rerun to the incremental-against-HEAD one; it is never a merge waiver. No receipt ⇒ full flow. (§3)
+- **Never merge on unfinished/failing CI — but suspend, don't idle.** CI is an *async gate in a different environment* (worktree-local green can't cover it — different `CI=1` skips, lockfile, lint/build). So it must finish before merge, yet sitting and watching the spinner is wasted: park the PR in a pending-CI list, `Monitor` its checks, and go advance another PR or this PR's CI-independent steps. Come back when it's green. `UNSTABLE` ≠ failing; confirm via the status rollup.
 - **Stale base ⇒ verify the merge result, not the PR branch.** Compute it with `git merge-tree --write-tree` → `git commit-tree` → detached worktree. See references.
 - **Worktree shares the main venv** (editable `.pth` points at the main repo) ⇒ running plain `pytest` tests *main* code, not the PR. Override `PYTHONPATH` to the worktree's package source (or use the worktree's own venv if it has one). See references.
 - **Protected/prompt files: byte-level head-to-head, never grep-only.** Grep passes even when a constraint is paraphrased into uselessness.

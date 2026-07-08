@@ -15,6 +15,22 @@ A PR is never a stranger. In this workflow every change starts from a **spec**, 
 
 **Completion criterion:** you can state the PR's root cause, its intended manifest, and how it relates to the last few merges — before judging a single line of the diff. Then verify the diff *against the spec's manifest and acceptance criteria* (does it do everything the spec claimed; did it quietly do more — scope creep).
 
+## §receipt — the environment receipt: what you may trust, what you must still run
+
+A PR produced by `/implement-spec` carries a `## 环境收据` block in its body: the exact `base` SHA it branched from, the `venv` isolation it tested under, how `config.yaml`/live tests were handled, and the suite result (`N passed, M skipped, K failed`). The point is to let the reviewer skip *re-deriving facts the implementer already knew* — **not** to skip verification. Split the fields by kind:
+
+**Deterministic facts — trust after a 1-second check:**
+- **base SHA.** Confirm against `gh pr view <N> --json baseRefName,headRefOid`. If it matches, take the receipt's stale-vs-clean judgement; you don't recompute the merge-base from scratch.
+- **venv isolation.** If it says an isolated `uv sync --frozen` (or a `PYTHONPATH` override at the worktree's package source), trust that the reported run exercised the **PR** code, not the main repo through a shared editable `.pth`. That is exactly the false-green trap (worktree shares main venv) — a receipt that names the isolation resolves it without you re-standing-up the path yourself.
+- **config.yaml / live handling.** The receipt states whether `config.yaml` was present (so `test_client_live.py` ran) or absent (module-skipped), and whether `requires_llm` ran. This tells you *why* the skipped count is what it is — so a skip in your own clean-worktree run (no `config.yaml`) isn't a discrepancy to chase.
+
+**Self-reported result — downgrade scope, never trust as terminal:**
+- The `N passed` count does **not** let you merge on the implementer's word. It downgrades your rerun from "full exploratory suite (is this thing even green?)" to "the incremental neighborhood seesaw aligned to **current staging HEAD** (what new red does merging introduce?)". That one authoritative rerun — clean venv + aligned to current HEAD + you watching it go red — is never skipped. This is the guard against reward-hacking and dual-track self-report masking a miscount: the gate reads ground truth (your run on disk), not the model's claim.
+
+**No receipt** (external contributor, pre-receipt PR): no downgrade — run the full flow.
+
+**Unaffected by the receipt (always run in full):** red→green proof, protected-file byte-level head-to-head, assembly-chain runtime check, import-ring. A self-reported count is structurally incapable of standing in for any of these.
+
 ## Common checks (every code PR)
 
 - **Read the full diff.** Cross-check each PR-body / spec claim against the code.
