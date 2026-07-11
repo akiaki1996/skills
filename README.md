@@ -14,11 +14,11 @@ The other half of `/handoff`: start a new session by reading a handoff document 
 
 Usage: `/read-handoff path/to/handoff.md` (omit the path to pick the latest)
 
-### `/implement-spec`
+### `/implement-plan`
 
-Given a structured spec document, create a worktree off the current branch, implement the change list test-first, then push and open a PR. My specs follow a fixed format: a one-sentence action summary, a change list, TDD tests, acceptance criteria, and risk notes — this skill reads all of them.
+Given a structured implementation plan (the construction blueprint — ordered tasks with complete code), create a worktree off the current branch, execute each task test-first, then push and open a PR. The plan is the authority; it references a design spec (`对应 spec:` field) which this skill skims for background. Tasks encode the tdd red-green-refactor cycle; failures trigger a diagnosis loop; a code-review dual-axis self-check runs before the PR.
 
-Usage: `/implement-spec path/to/spec.md`
+Usage: `/implement-plan path/to/plan.md`
 
 ### `/loop-pr-merge`
 
