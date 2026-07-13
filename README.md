@@ -34,6 +34,12 @@ Use on a project with a `docs/handoffs/` (by-month dirs), `docs/milestone/`, `CL
 
 Usage: `/doc-sync [N]` (N = scan handoffs from the last N days, default 7)
 
+### `/grill-with-fable`
+
+Stress-test a plan, spec, or design decision by having Fable grill it — before you build. Two modes in one skill: **(A) pre-answer pipeline** — take the pile of one-at-a-time questions `/grilling` would ask, hand them to Fable to answer in one pass, then only the genuinely load-bearing decisions come back to you (Fable digests the noise, you rule on the few that matter); **(B) spec review** — generate a purely-abstract grill prompt that gets Fable to attack a spec/plan's soft spots and open assumptions, then return a verdict. Both modes enforce two hard rules: an **AUP self-check** (a grill prompt must never carry adversarial framing or security metaphors, or it trips content filters and gets refused — learned the hard way after two rejections) and **"grill's value is overturning your priors, not confirming them"** (questions must aim at what's marked tentative/leaning/candidate, not ask "is this right?"). Fable is never called directly — the skill always produces a prompt for you to forward manually.
+
+Usage: say "grill fable", "have fable grill this design", "write me a grill prompt", or "let fable pre-answer the grill".
+
 ## Installation
 
 ```
