@@ -38,6 +38,31 @@ git worktree add .claude/worktrees/worktree-<topic> -b worktree-<topic> origin/$
 
 Work inside the new worktree for all subsequent steps.
 
+### 2.1. Backfill gitignored local config (common-pitfall guard)
+
+A fresh `git worktree add` checks out only tracked files — **gitignored local config that tests/lint need at runtime is missing**, which surfaces as confusing failures the agent then spends a long time diagnosing. Backfill it now from the main worktree (the one you ran the command from), generically — **do not hardcode project paths**.
+
+Default backfill list (extend per project as needed): `.env`, `config.yaml`, `config.yml`, and any `*.local.*` file.
+
+```bash
+MAIN=<main worktree root, e.g. the cwd you ran step 2 from>
+WT=.claude/worktrees/worktree-<topic>
+# Copy each file only if it exists in MAIN and is absent in the worktree — never overwrite.
+for f in .env config.yaml config.yml; do
+  [ -f "$MAIN/$f" ] && [ ! -f "$WT/$f" ] && cp "$MAIN/$f" "$WT/$f"
+done
+# Same for *.local.* (e.g. .env.local), recursively mirroring path under WT.
+cd "$MAIN" && find . -type f -name '*.local.*' -not -path './.claude/worktrees/*' 2>/dev/null | while read f; do
+  [ ! -f "$WT/$f" ] && mkdir -p "$WT/$(dirname "$f")" && cp "$f" "$WT/$f"
+done
+```
+
+Rules:
+- **venv is never copied** — reuse the main repo venv (it stays out of the worktree). To avoid false-green tests that run main-repo code via the editable `.pth`, follow the existing guidance: prefer an isolated `uv sync --frozen` in the worktree, or point `PYTHONPATH` at the worktree's own `packages/...` source.
+- **Never `git add` these backfilled files** — they are gitignored because they carry secrets / are machine-local; copying them into the worktree is fine, committing them is not. The PR receipt (step 4.5) reports only *presence*, never contents.
+
+**Completion criterion:** every file on the backfill list that exists in the main worktree is now present in the worktree (newly copied) or was already there (left untouched); `.venv` was not copied.
+
 **Completion criterion:** `git worktree list` shows the new worktree; you are working inside it.
 
 ## 3. Implement — execute the plan's Tasks (tdd: red first, then green)
@@ -96,6 +121,8 @@ git add -p          # stage purposefully, not with -A
 git commit -m "<Chinese summary of what changed and why>"
 git push -u origin worktree-<topic>
 ```
+
+Never `git add -A` or `git add .` — they can sweep in secret-bearing gitignored files (the step-2.1 backfill: `.env`, `config.yaml`, `*.local.*`). Use `-p` only; those files never leave the worktree.
 
 Commit message: a concise Chinese sentence describing the intent, not the mechanism.
 
