@@ -17,7 +17,7 @@ A PR is never a stranger. In this workflow every change starts from a **spec**, 
 
 ## §receipt — the environment receipt: what you may trust, what you must still run
 
-A PR produced by `/implement-spec` carries a `## 环境收据` block in its body: the exact `base` SHA it branched from, the `venv` isolation it tested under, how `config.yaml`/live tests were handled, and the suite result (`N passed, M skipped, K failed`). The point is to let the reviewer skip *re-deriving facts the implementer already knew* — **not** to skip verification. Split the fields by kind:
+A PR produced by `/implement-plan` carries a `## 环境收据` block in its body: the exact `base` SHA it branched from, the `venv` isolation it tested under, how `config.yaml`/live tests were handled, and the suite result (`N passed, M skipped, K failed`). The point is to let the reviewer skip *re-deriving facts the implementer already knew* — **not** to skip verification. Split the fields by kind:
 
 **Deterministic facts — trust after a 1-second check:**
 - **base SHA.** Confirm against `gh pr view <N> --json baseRefName,headRefOid`. If it matches, take the receipt's stale-vs-clean judgement; you don't recompute the merge-base from scratch.

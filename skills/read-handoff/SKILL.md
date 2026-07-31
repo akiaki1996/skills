@@ -86,7 +86,7 @@ ls docs/superpowers/specs/ docs/specs/ docs/plans/ 2>/dev/null | grep "<handoff�
    - 接下来从哪一项开始？
    - 若 git 显示 behind/分叉：要不要先 `git pull --rebase`？
 
-**不自动动手**（不改代码、不动 git、不跑实施）。等用户拍板后，若下一步是「实施某 spec」，可引导到 `implement-spec` skill。
+**不自动动手**（不改代码、不动 git、不跑实施）。等用户拍板后，若下一步是「实施某 spec」，可引导到 `implement-plan` skill。
 
 ## Key Principles
 
@@ -99,4 +99,4 @@ ls docs/superpowers/specs/ docs/specs/ docs/plans/ 2>/dev/null | grep "<handoff�
 ## 与其它 skill 的衔接
 
 - 上游：`handoff`（写出本 skill 要读的文档）。
-- 下游：用户确认接手点后，若是实施 spec → `implement-spec`；若要诊断 bug → `diagnose`。
+- 下游：用户确认接手点后，若是实施 spec → `implement-plan`；若要诊断 bug → `diagnose`。
