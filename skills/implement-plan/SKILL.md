@@ -58,7 +58,10 @@ done
 ```
 
 Rules:
-- **venv is never copied** — reuse the main repo venv (it stays out of the worktree). To avoid false-green tests that run main-repo code via the editable `.pth`, follow the existing guidance: prefer an isolated `uv sync --frozen` in the worktree, or point `PYTHONPATH` at the worktree's own `packages/...` source.
+- **venv is never copied. For editable-install packages the worktree MUST get its own venv — do NOT reuse the main repo venv.** An editable install writes a `.pth` finder whose content is an **absolute path to the main repo** (e.g. the main repo's `packages/foo/.venv/lib/python3.10/site-packages/_foo.pth` contains `/abs/path/to/main/packages/foo`). Reusing that venv makes `import foo` resolve to *main-repo* source via the `.pth` — your worktree edits are never imported, so tests pass against unchanged code: **false green**.
+  - Give the worktree an isolated venv whose editable `.pth` points into the worktree, then run the suite with it. Generic recipe: `uv sync --frozen` inside the worktree.
+  - **Workspace-root caveat** — a workspace member (pyproject `[tool.uv.workspace]` with a `workspace = true` source) often cannot `uv sync` from its own directory; it needs the workspace root's lock. Sync from the workspace root *inside the worktree* instead, e.g. `cd <wt>/packages/agent/backend && UV_PROJECT_ENVIRONMENT=<wt>/packages/<pkg>/.venv uv sync --frozen`, then run tests with `<wt>/packages/<pkg>/.venv/bin/python -m pytest`.
+  - **Verify before trusting any green**: `cat <wt>/packages/<pkg>/.venv/lib/python3.10/site-packages/_<pkg>.pth` must point at `<wt>/packages/<pkg>`, not the main repo. If it still points at main, you're on the shared venv — redo the isolated sync. (Alternative for non-editable packages: point `PYTHONPATH` at the worktree's own `packages/...` source.)
 - **Never `git add` these backfilled files** — they are gitignored because they carry secrets / are machine-local; copying them into the worktree is fine, committing them is not. The PR receipt (step 4.5) reports only *presence*, never contents.
 
 **Completion criterion:** every file on the backfill list that exists in the main worktree is now present in the worktree (newly copied) or was already there (left untouched); `.venv` was not copied.

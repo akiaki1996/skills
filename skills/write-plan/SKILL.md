@@ -23,6 +23,7 @@ model-invoked: true
 
 - **对应 spec**：读它的设计方案、验收标准、风险（plan 的 Task 从这里推导）
 - **项目约定**：`CLAUDE.md` / `README` / `Makefile` / `package.json` / `pyproject.toml`——**本项目怎么跑测试、lint、构建**（Task 的运行命令必须是真实命令，不能瞎编）
+- **editable-install 假绿陷阱**：若项目是 uv workspace 成员（`pyproject.toml` 有 `[tool.uv.workspace]` / `workspace = true` 源），读它时确认**测试命令在 worktree 里怎么用独立 venv 跑**——主仓 venv 的 editable `.pth` 是绝对路径、指向主仓源码，implement-plan 复用它会假绿（测试跑在主仓代码上）。Task 的测试命令必须发 isolated-venv 的真实命令（如从 worktree 的 workspace 根 `UV_PROJECT_ENVIRONMENT=<wt>/packages/<pkg>/.venv uv sync --frozen` 后 `<wt>/.../.venv/bin/python -m pytest`），不能只写裸 `pytest` 或共享主仓 venv 的命令
 - **plan 存放惯例**：项目里已有 plan 目录吗？沿用它（否则默认 `docs/plans/`）
 - **测试目录 + 命名**：新测试放哪、怎么命名（照项目惯例）
 
@@ -168,6 +169,11 @@ git commit -m "<commit message>"
 
 - 测试通过 = 验收通过
 - 没有 "手动验证" 或 "目视检查" 类模糊验收
+
+### 4.1 确保每个 Run 命令都指向 worktree 独立 venv（editable-install 假绿陷阱）
+
+- 若项目是 uv workspace 成员，`Run:` 里的测试命令必须用 **worktree 内独立 venv**：如 `cd <wt>/packages/agent/backend && UV_PROJECT_ENVIRONMENT=<wt>/packages/<pkg>/.venv uv sync --frozen` 后再 `<wt>/packages/<pkg>/.venv/bin/python -m pytest`。
+- 不能写裸 `pytest` / 共享主仓 venv 的命令——implement-plan 复用主仓 editable `.pth` 时测试跑在主仓代码上，会假绿（见「落笔前」的 editable-install 假绿陷阱）。
 
 ### 5. 确保收尾 task 包含本项目特有的验证步骤
 
