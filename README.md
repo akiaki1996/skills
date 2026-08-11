@@ -4,6 +4,12 @@ Claude Code skills I use in my own workflow.
 
 ## Skills
 
+### `/design-scope`
+
+The front-end of the design pipeline: take a half-baked idea (a pile of bullet-point "碎碎念") and converge it into an auditable design document through iterative Socratic questioning. The agent asks 2–4 focused questions per round, deepens based on each answer, and only writes when all decision points are closed (goal, chosen approach, integration point, YAGNI boundaries, testable acceptance criteria, known risks). The output document records the full evolution — the original idea verbatim, each Q/A round, key disagreements and rulings, rejected alternatives with reasons — so a reviewer can trace *why* each decision was made. Pipelines into `write-spec` (implementation spec) → `write-plan` (construction blueprint) → `implement-plan`.
+
+Usage: paste your fragmentary thoughts and say "帮我收敛一下" / "design-scope 一下这个想法".
+
 ### `/handoff`
 
 When a session grows too long to continue effectively, generate a structured handoff document so the next agent can pick up exactly where you left off — with file paths, decisions made, and a concrete first step, not a vague summary.
