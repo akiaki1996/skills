@@ -27,6 +27,20 @@ model-invoked: true
 - **plan 存放惯例**：项目里已有 plan 目录吗？沿用它（否则默认 `docs/plans/`）
 - **测试目录 + 命名**：新测试放哪、怎么命名（照项目惯例）
 
+## 落笔方式：大纲先行 + 逐 Task 分块（硬约束）
+
+plan 含完整代码，单份目标 **≤800 行**。一次 `Write` 写全文会生成巨型 chunk、撑爆上下文，必须分两步：
+
+1. **先写骨架 + Task 大纲**（一次 `Write`，≤120 行）：元信息、Global Constraints、Task 列表。每个 Task 只写标题 + Files + Interfaces + Depends on + 占位符 `<!-- TODO: task-N -->`，**不贴代码**。
+2. **先自查大纲再填充**：对着下文交叉检查 1-5 过一遍（粒度 ≤100 行、DAG、垂直切片、验收可判、收尾覆盖）。拆分不合理就在大纲阶段改，别等写完代码才发现要返工。
+3. **逐 Task 填充**（一次 `Edit` 只填一个 Task，`old_string` = `<!-- TODO: task-N -->`）：单块 **≤150 行**。超了 → 该 Task 粒度不合格，回大纲拆成两个 Task 再填，不要加大 chunk。
+4. **进度 = 剩余占位符**：`grep -n 'TODO: task-' <plan文件>` 为空即写完，不需要额外进度文件。
+5. **禁止**：骨架之后用 `Write` 整文件覆盖；写完 `Read` 全文回读；一次 Edit 塞多个 Task。
+6. **共用代码只写一次**：被多个 Task 复用的 fixture / 类型 / helper，在大纲后单列 `## Shared Code` 一节集中给出，Task 里写"使用 Shared Code 的 `X`，不变"。
+7. **改动既有文件**：给"定位锚点 + 替换后的完整函数/方法"，不要重贴整个文件。
+8. **超 800 行就拆 plan**：说明覆盖范围过大——按阶段拆成多份 plan（`-plan-1` / `-plan-2`，各含完整 Task 序列），或把非核心 Task 明确移出范围。
+9. **上下文被压缩后恢复**：`grep -n 'TODO: task-'` 找到下一个 Task，只 `Read` 占位符附近（offset/limit），不要整读全文。
+
 ## Plan 文档的固定结构
 
 创建文件 `docs/plans/YYYY-MM-DD-<slug>-plan.md`。
@@ -190,4 +204,4 @@ git commit -m "<commit message>"
 docs/plans/YYYY-MM-DD-<slug>-plan.md
 ```
 
-其中 `<slug>` 匹配对应 spec 的 slug。写完后提示用户：plan 已就绪，新 session 用 `/implement-plan <plan路径>` 落地。
+其中 `<slug>` 匹配对应 spec 的 slug。收尾先跑 `grep -n 'TODO: task-' <plan文件>` 确认无残留占位符，再提示用户：plan 已就绪，新 session 用 `/implement-plan <plan路径>` 落地。

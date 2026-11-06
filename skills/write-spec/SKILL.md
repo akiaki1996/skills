@@ -28,6 +28,18 @@ model-invoked: true
 - **spec 存放惯例**：项目里已有 spec/design 文档吗？在哪个目录、什么命名？沿用它（否则用默认 `docs/specs/`）
 - **构建/测试入口**：`Makefile` / `package.json` / `pyproject.toml` / `justfile`——本项目怎么跑测试和 lint（供「验收标准」段引用真实命令）
 
+## 落笔方式：骨架 + 分块填充（硬约束）
+
+spec 目标 **≤400 行**。一次 `Write` 写全文会生成巨型 chunk、撑爆上下文，必须分块落盘：
+
+1. **先写骨架**（一次 `Write`，≤60 行）：标题 + 元信息 + 各级标题，每节正文只留一个唯一占位符，如
+   `<!-- TODO: §1 问题定义 -->`、`<!-- TODO: §3.2 数据流 -->`。
+2. **逐节填充**（每节一次 `Edit`，`old_string` = 该占位符）：一次只写一节，单块 **≤80 行**。
+   §3 设计方案按 3.x 拆成多次 Edit；任何一节写不进 80 行，说明它没收敛——回讨论或把实现细节交给 plan，不要加大 chunk。
+3. **进度 = 剩余占位符**：`grep -n 'TODO:' <spec文件>` 为空即写完，不需要额外进度文件。
+4. **禁止**：骨架之后用 `Write` 整文件覆盖；写完 `Read` 全文回读（`Edit` 成功即已落盘）。
+5. **上下文被压缩后恢复**：`grep -n 'TODO:'` 找到下一节，只 `Read` 该占位符 ±20 行（offset/limit），不要整读全文。
+
 ## Spec 文档的固定结构
 
 创建文件 `docs/specs/YYYY-MM-DD-<slug>-spec.md`（若项目另有 spec 目录惯例则沿用），按以下结构写入。
@@ -117,4 +129,4 @@ docs/specs/YYYY-MM-DD-<slug>-spec.md
 
 其中 `<slug>` 是功能名称的 kebab-case 缩写（如 `gate-enforcement`）。
 
-写完后提示用户：spec 已就绪，确认后可用 `write-plan` 出施工图 plan。
+收尾先跑 `grep -n 'TODO:' <spec文件>` 确认无残留占位符，再提示用户：spec 已就绪，确认后可用 `write-plan` 出施工图 plan。
